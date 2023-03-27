@@ -1,7 +1,7 @@
 #![feature(int_roundings)]
 
 mod structs;
-use crate::structs::{BlockGroupDescriptor, DirectoryEntry, Inode, Superblock};
+use crate::structs::{BlockGroupDescriptor, DirectoryEntry, Inode, Superblock, TypeIndicator};
 use std::mem;
 use null_terminated::NulStr;
 use uuid::Uuid;
@@ -185,11 +185,31 @@ fn main() -> Result<()> {
                     // deeper into dir_2
                     let to_dir = elts[1];
                     let mut found = false;
+                    let mut is_dir = false;
                     for dir in &dirs {
+                        is_dir = false;
+                        let cur_inode = ext2.get_inode(dir.0).type_perm.bits();
+                        //if cur_inode == TypeIndicator::Directory{ 
+                        //    is_dir = true;
+                        //}
+                        if cur_inode >= 0x4000 && cur_inode < 0x5000{ //Very brutish way to check if cur_inode starts with 0x4
+                            is_dir = true;
+                        }
+                        //let formatted_inode = format!("{:x}",cur_inode);
+                        //let key_bit = formatted_inode.chars().next().unwrap();   
+                        //if key_bit == format!("{:x}",4).chars().next().unwrap() { //This is definitely not the best way to do this, but it gets both to be characters so I can compare them
+                        //    is_dir = true;
+                        //}
                         if dir.1.to_string().eq(to_dir) {
                             // TODO: maybe don't just assume this is a directory
                             found = true;
-                            current_working_inode = dir.0;
+                            if is_dir{
+                                current_working_inode = dir.0;
+                            }
+                            else{
+                                println!("{} is not a directory, cwd unchanged", to_dir);
+                            }
+                            
                         }
                     }
                     if !found {
@@ -202,10 +222,46 @@ fn main() -> Result<()> {
                 // consider supporting `-p path/to_file` to create a path of directories
                 println!("mkdir not yet implemented");
             } else if line.starts_with("cat") {
+                let elts: Vec<&str> = line.split(' ').collect();
+                let to_dir = elts[1];
+                let mut found = false;
+                let mut is_printable = false;
+                for dir in &dirs {
+                    is_printable = true;
+                    let cur_inode = ext2.get_inode(dir.0).type_perm.bits();
+                    if cur_inode >= 0x4000 && cur_inode < 0x5000{
+                        is_printable = false;
+                    }
+                    if dir.1.to_string().eq(to_dir) {
+                        found = true;
+                        if is_printable{
+                            let new_spot = match ext2.read_dir_inode(dir.0) {
+                                Ok(dir_listing) => {
+                                    dir_listing
+                                },
+                                Err(_) => {
+                                    println!("unable to read cwd");
+                                    break;
+                                }
+                            };
+
+                            for lines in &new_spot{
+                                print!("{}\t", lines.1); //This works sort of? Just modified what LS was accidently doing to files, seems to miss first character, prolly not the best way to do this
+                            }
+                        }
+                        else{
+                            println!("{} is not printable", to_dir);
+                        }
+                        
+                    }
+                }
+                if !found {
+                    println!("unable to locate {}", to_dir);
+                }
                 // `cat filename`
                 // print the contents of filename to stdout
                 // if it's a directory, print a nice error
-                println!("cat not yet implemented");
+                //println!("cat not yet implemented");
             } else if line.starts_with("rm") {
                 // `rm target`
                 // unlink a file or empty directory
